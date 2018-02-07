@@ -63,7 +63,7 @@ def set_button_position(im):
     swipe_x1, swipe_y1, swipe_x2, swipe_y2 = left, top, left, top
 
 
-def jump(distance):
+def jump(distance, press_coefficient):
     """
     跳跃一定的距离
     """
@@ -93,9 +93,23 @@ def find_piece_and_board(im):
     piece_y_max = 0
     board_x = 0
     board_y = 0
+    board_width = 0
+    board_w_left = 0
+    board_w_right = 0
+    board_height = 0
+    gameover = 0
     scan_x_border = int(w / 8)  # 扫描棋子时的左右边界
     scan_start_y = 0  # 扫描的起始 y 坐标
     im_pixel = im.load()
+
+    # 如果 gameover 那就不检测
+    # 检测再来一局 这个按钮
+    onemore = im_pixel[int(w*0.3), int(h*0.83)]
+    print("That particular pixel: {}".format((onemore[0],onemore[1],onemore[2])))
+    if onemore[0] == 255 and onemore[1] == 255 and onemore[2] == 255:
+        gameover = 1
+        return 0, 0, 0, 0, 0, 0, gameover
+
     # 以 50px 步长，尝试探测 scan_start_y
     for i in range(int(h / 3), int(h*2 / 3), 50):
         last_pixel = im_pixel[0, i]
@@ -120,12 +134,12 @@ def find_piece_and_board(im):
                     and (53 < pixel[1] < 63) \
                     and (95 < pixel[2] < 110):
                 piece_x_sum += j
-                piece_x_c += 1
+                piece_x_c += 1  # count
                 piece_y_max = max(i, piece_y_max)
 
     if not all((piece_x_sum, piece_x_c)):
-        return 0, 0, 0, 0
-    piece_x = int(piece_x_sum / piece_x_c)
+        return 0, 0, 0, 0, 0, 0, gameover
+    piece_x = int(piece_x_sum / piece_x_c)  # 求平均数
     piece_y = piece_y_max - piece_base_height_1_2  # 上移棋子底盘高度的一半
 
     # 限制棋盘扫描的横坐标，避免音符 bug
@@ -136,15 +150,18 @@ def find_piece_and_board(im):
         board_x_start = 0
         board_x_end = piece_x
 
-    for i in range(int(h / 3), int(h * 2 / 3)):
+    for i in range(int(h / 3), int(h * 2 / 3)):  # h 为屏幕的 height
         last_pixel = im_pixel[0, i]
         if board_x or board_y:
             break
         board_x_sum = 0
         board_x_c = 0
 
+        colors = []
+
         for j in range(int(board_x_start), int(board_x_end)):
             pixel = im_pixel[j, i]
+            #colors.append((pixel[0],pixel[1],pixel[2]))  # my modifi
             # 修掉脑袋比下一个小格子还高的情况的 bug
             if abs(j - piece_x) < piece_body_width:
                 continue
@@ -157,7 +174,15 @@ def find_piece_and_board(im):
                 board_x_c += 1
         if board_x_sum:
             board_x = board_x_sum / board_x_c
+
     last_pixel = im_pixel[board_x, i]
+
+    
+    #print("background:({}{}{})")
+    #
+    #print(colors)
+    #outpiece = piece_x - piece_body_width
+    #for i2 in range(outpiece - 
 
     # 从上顶点往下 +274 的位置开始向上找颜色与上顶点一样的点，为下顶点
     # 该方法对所有纯色平面和部分非纯色平面有效，对高尔夫草坪面、木纹桌面、
@@ -168,7 +193,32 @@ def find_piece_and_board(im):
                 + abs(pixel[1] - last_pixel[1]) \
                 + abs(pixel[2] - last_pixel[2]) < 10:
             break
+
     board_y = int((i+k) / 2)
+    board_height = k - i
+
+    # 计算宽度
+    board_width = 0
+    board_width_collect = []
+    board_color_pixel = im_pixel[board_x, k-1]
+    print("next board color:({})".format((board_color_pixel[0],board_color_pixel[1],board_color_pixel[2])))
+    for j in range(int(board_x_start), int(board_x_end)):
+        pixel = im_pixel[j, board_y]
+        colors.append((pixel[0],pixel[1],pixel[2]))
+  
+        if abs(pixel[0] - board_color_pixel[0]) \
+                + abs(pixel[1] - board_color_pixel[1]) \
+                + abs(pixel[2] - board_color_pixel[2]) < 10:
+            board_width_collect.append(j)
+    if board_width_collect:
+        board_width = board_width_collect[-1] - board_width_collect[0]
+    maps = {}
+    for t in colors:
+        if t in maps:
+            maps[t] += 1
+        else:
+            maps[t] = 1
+    print(maps)
 
     # 如果上一跳命中中间，则下个目标中心会出现 r245 g245 b245 的点，利用这个
     # 属性弥补上一段代码可能存在的判断错误
@@ -181,8 +231,8 @@ def find_piece_and_board(im):
             break
 
     if not all((board_x, board_y)):
-        return 0, 0, 0, 0
-    return piece_x, piece_y, board_x, board_y
+        return 0, 0, 0, 0, 0, 0, gameover
+    return piece_x, piece_y, board_x, board_y, board_width, board_height, gameover
 
 
 def yes_or_no(prompt, true_value='y', false_value='n', default=True):
@@ -203,13 +253,25 @@ def yes_or_no(prompt, true_value='y', false_value='n', default=True):
         prompt = 'Please input {} or {}: '.format(true_value, false_value)
         i = input(prompt)
 
+#-------------------------
+#   设置
+#-------------------------
+
+sum = 0
+limit = 315
+
+#-------------------------
 
 def main():
     """
     主函数
     """
-    op = yes_or_no('请确保手机打开了 ADB 并连接了电脑，'
-                   '然后打开跳一跳并【开始游戏】后再用本程序，确定开始？')
+    global sum
+    global limit
+    perfect = 0
+    #op = yes_or_no('请确保手机打开了 ADB 并连接了电脑，'
+    #               '然后打开跳一跳并【开始游戏】后再用本程序，确定开始？')
+    op = True
     if not op:
         print('bye')
         return
@@ -220,14 +282,47 @@ def main():
     i, next_rest, next_rest_time = (0, random.randrange(3, 10),
                                     random.randrange(5, 10))
     while True:
+        sum += 1
         screenshot.pull_screenshot()
         im = Image.open('./autojump.png')
         # 获取棋子和 board 的位置
-        piece_x, piece_y, board_x, board_y = find_piece_and_board(im)
+        print("+------------------------------------------------------------+")
+        print("+                   scanning next board                      +")
+        print("+------------------------------------------------------------+")
+        piece_x, piece_y, board_x, board_y, board_width, board_height, gameover = find_piece_and_board(im)
+        print("Next stop size: width={}, height={}".format(board_width, board_height))
+        #####我的修改
+        perfect += 1
+        if perfect > 3:
+            if (board_width > 200):
+                print("-------------------------")
+                print("[perform imperfect jump!]")
+                print("-------------------------")
+                a, b, c, d = 1, 1, random.uniform(0.95, 1.05), random.uniform(0.95, 1.05)  #1517945324 295 1206 694.5 941
+                piece_x, piece_y, board_x, board_y = piece_x*a, piece_y*b, board_x*c, board_y*d
+                perfect = 0
+            else:
+                print("Encounter small stop with size = {}".format(board_width))
         ts = int(time.time())
-        print(ts, piece_x, piece_y, board_x, board_y)
+        print("ts={}, piece_x={}, piece_y={}, board_x={}, board_y={}".format(ts, piece_x, piece_y, board_x, board_y))
         set_button_position(im)
-        jump(math.sqrt((board_x - piece_x) ** 2 + (board_y - piece_y) ** 2))
+        if gameover: # 死后数据恢复
+            sum = 0
+        distance = math.sqrt((board_x - piece_x) ** 2 + (board_y - piece_y) ** 2)
+        # 自杀
+        if sum > limit:
+            print("--------------------------------------------------------------------------------------")
+            print ("Passed the point of {}".format(limit))
+            limit += 15
+            sum = 0
+            print("[Suicide!]")
+            jump(distance, 3)
+            continue
+        print("----------")
+        print("[Now Jump]")
+        print("----------")
+        jump(distance, 1.392)
+        print("{} jumps remain".format(limit-sum))
         if DEBUG_SWITCH:
             debug.save_debug_screenshot(ts, im, piece_x,
                                         piece_y, board_x, board_y)
@@ -235,12 +330,12 @@ def main():
         im.close()
         i += 1
         if i == next_rest:
-            print('已经连续打了 {} 下，休息 {}s'.format(i, next_rest_time))
+            print('Have performed {} jumps in this section, will rest for {}s'.format(i, next_rest_time))
             for j in range(next_rest_time):
-                sys.stdout.write('\r程序将在 {}s 后继续'.format(next_rest_time - j))
+                sys.stdout.write('\rProgram will continue after {}s'.format(next_rest_time - j))
                 sys.stdout.flush()
                 time.sleep(1)
-            print('\n继续')
+            print('\nGo on')
             i, next_rest, next_rest_time = (0, random.randrange(30, 100),
                                             random.randrange(10, 60))
         # 为了保证截图的时候应落稳了，多延迟一会儿，随机值防 ban
